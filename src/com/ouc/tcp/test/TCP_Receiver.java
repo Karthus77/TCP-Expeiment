@@ -15,6 +15,7 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 	
 	private TCP_PACKET ackPack;	//回复的ACK报文段
 	int sequence=1;//用于记录当前待接收的包序号，注意包序号不完全是
+	int lastSequence = -1;//记录上一次收到包的序号
 		
 	/*构造函数*/
 	public TCP_Receiver() {
@@ -33,9 +34,13 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 			tcpH.setTh_sum(CheckSum.computeChkSum(ackPack));//计算校验和
 			//回复ACK报文段
 			reply(ackPack);
-			//将接收到的正确有序的数据插入data队列，准备交付
-			dataQueue.add(recvPack.getTcpS().getData());
-			sequence++;
+			int currentSequence = (recvPack.getTcpH().getTh_seq() - 1) / 100;
+			if(currentSequence!=lastSequence) {
+				lastSequence=currentSequence;//更新上一次的包序号
+				//将接收到的正确有序的数据插入data队列，准备交付
+				dataQueue.add(recvPack.getTcpS().getData());
+				sequence++;
+			}
 		}else{
 			System.out.println("Recieve Computed: "+CheckSum.computeChkSum(recvPack));
 			System.out.println("Recieved Packet"+recvPack.getTcpH().getTh_sum());
