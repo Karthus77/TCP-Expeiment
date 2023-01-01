@@ -35,7 +35,6 @@ public class TCP_Sender extends TCP_Sender_ADT {
 		//发送TCP数据报
 		udt_send(tcpPack);
 		flag = 0;
-		
 		//等待ACK报文
 		//waitACK();
 		while (flag==0);
@@ -45,7 +44,7 @@ public class TCP_Sender extends TCP_Sender_ADT {
 	//不可靠发送：将打包好的TCP数据报通过不可靠传输信道发送；仅需修改错误标志
 	public void udt_send(TCP_PACKET stcpPack) {
 		//设置错误控制标志
-		tcpH.setTh_eflag((byte)0);		
+		tcpH.setTh_eflag((byte)1);
 		//System.out.println("to send: "+stcpPack.getTcpH().getTh_seq());				
 		//发送数据报
 		client.send(stcpPack);
@@ -59,14 +58,14 @@ public class TCP_Sender extends TCP_Sender_ADT {
 		if(!ackQueue.isEmpty()){
 			int currentAck=ackQueue.poll();
 			// System.out.println("CurrentAck: "+currentAck);
-			if (currentAck == tcpPack.getTcpH().getTh_seq()){
+			if (currentAck == tcpPack.getTcpH().getTh_seq()){//成功接收
 				System.out.println("Clear: "+tcpPack.getTcpH().getTh_seq());
-				flag = 1;
+				flag = 1;//等待应用层调用
 				//break;
-			}else{
+			}else{//NACK
 				System.out.println("Retransmit: "+tcpPack.getTcpH().getTh_seq());
-				udt_send(tcpPack);
-				flag = 0;
+				udt_send(tcpPack);//重新发包
+				flag = 0;//waitACK状态
 			}
 		}
 	}
