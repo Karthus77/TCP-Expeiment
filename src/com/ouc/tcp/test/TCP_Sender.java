@@ -13,6 +13,8 @@ public class TCP_Sender extends TCP_Sender_ADT {
 	
 	private TCP_PACKET tcpPack;	//待发送的TCP数据报
 	private volatile int flag = 0;
+	private UDT_Timer timer;//重传计时器
+	private UDT_RetransTask task;
 	
 	/*构造函数*/
 	public TCP_Sender() {
@@ -31,7 +33,9 @@ public class TCP_Sender extends TCP_Sender_ADT {
 		//更新带有checksum的TCP 报文头		
 		tcpH.setTh_sum(CheckSum.computeChkSum(tcpPack));
 		tcpPack.setTcpH(tcpH);
-		
+		timer = new UDT_Timer();
+		task = new UDT_RetransTask(this.client, this.tcpPack);
+		timer.schedule(this.task, 1000, 1000);
 		//发送TCP数据报
 		udt_send(tcpPack);
 		flag = 0;
@@ -44,7 +48,7 @@ public class TCP_Sender extends TCP_Sender_ADT {
 	//不可靠发送：将打包好的TCP数据报通过不可靠传输信道发送；仅需修改错误标志
 	public void udt_send(TCP_PACKET stcpPack) {
 		//设置错误控制标志
-		tcpH.setTh_eflag((byte)1);
+		tcpH.setTh_eflag((byte)4);
 		//System.out.println("to send: "+stcpPack.getTcpH().getTh_seq());				
 		//发送数据报
 		client.send(stcpPack);
@@ -60,6 +64,7 @@ public class TCP_Sender extends TCP_Sender_ADT {
 			// System.out.println("CurrentAck: "+currentAck);
 			if (currentAck == tcpPack.getTcpH().getTh_seq()){//成功接收
 				System.out.println("Clear: "+tcpPack.getTcpH().getTh_seq());
+				timer.cancel();
 				flag = 1;//等待应用层调用
 				//break;
 			}else{//NACK

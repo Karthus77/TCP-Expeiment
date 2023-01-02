@@ -41,20 +41,8 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 				dataQueue.add(recvPack.getTcpS().getData());
 				sequence++;
 			}
-		}else{
-			System.out.println("Recieve Computed: "+CheckSum.computeChkSum(recvPack));
-			System.out.println("Recieved Packet"+recvPack.getTcpH().getTh_sum());
-			System.out.println("Problem: Packet Number: "+recvPack.getTcpH().getTh_seq()+" + InnerSeq:  "+sequence);
-			tcpH.setTh_ack(lastSequence*100+1);//返回上一次接收的包序号
-			ackPack = new TCP_PACKET(tcpH, tcpS, recvPack.getSourceAddr());
-			tcpH.setTh_sum(CheckSum.computeChkSum(ackPack));
-			//回复ACK报文段
-			reply(ackPack);
 		}
-		
 		System.out.println();
-		
-		
 		//交付数据（每20组数据交付一次）
 		if(dataQueue.size() == 20) 
 			deliver_data();	
@@ -92,7 +80,7 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 	//回复ACK报文段
 	public void reply(TCP_PACKET replyPack) {
 		//设置错误控制标志
-		tcpH.setTh_eflag((byte)1);	//eFlag=0，信道无错误
+		tcpH.setTh_eflag((byte)4);	//eFlag=0，信道无错误
 				
 		//发送数据报
 		client.send(replyPack);
