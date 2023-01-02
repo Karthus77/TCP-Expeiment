@@ -12,9 +12,8 @@ import com.ouc.tcp.tool.TCP_TOOL;
 public class TCP_Sender extends TCP_Sender_ADT {
 	
 	private TCP_PACKET tcpPack;	//待发送的TCP数据报
-	private volatile int flag = 0;
-	private UDT_Timer timer;//重传计时器
-	private UDT_RetransTask task;
+	private volatile int flag = 1;
+	private SenderSlidingWindow window = new SenderSlidingWindow(this.client);
 	
 	/*构造函数*/
 	public TCP_Sender() {
@@ -25,7 +24,6 @@ public class TCP_Sender extends TCP_Sender_ADT {
 	@Override
 	//可靠发送（应用层调用）：封装应用层数据，产生TCP数据报；需要修改
 	public void rdt_send(int dataIndex, int[] appData) {
-		
 		//生成TCP数据报（设置序号和数据字段/校验和),注意打包的顺序
 		tcpH.setTh_seq(dataIndex * appData.length + 1);//包序号设置为字节流号：
 		tcpS.setData(appData);
@@ -33,22 +31,27 @@ public class TCP_Sender extends TCP_Sender_ADT {
 		//更新带有checksum的TCP 报文头		
 		tcpH.setTh_sum(CheckSum.computeChkSum(tcpPack));
 		tcpPack.setTcpH(tcpH);
-		timer = new UDT_Timer();
-		task = new UDT_RetransTask(this.client, this.tcpPack);
-		timer.schedule(this.task, 1000, 1000);
-		//发送TCP数据报
-		udt_send(tcpPack);
-		flag = 0;
-		//等待ACK报文
-		//waitACK();
-		while (flag==0);
+		if (this.window.isFull()) {
+			System.out.println();
+			System.out.println("Sliding Window Full");
+			System.out.println();
+			this.flag = 0;
+		}
+		while (this.flag == 0) ;
+		try {
+			this.window.putPacket(this.tcpPack.clone());
+		} catch (CloneNotSupportedException e) {
+			e.printStackTrace();
+		}
+		// 发送 TCP 数据报
+		udt_send(this.tcpPack);
 	}
 	
 	@Override
 	//不可靠发送：将打包好的TCP数据报通过不可靠传输信道发送；仅需修改错误标志
 	public void udt_send(TCP_PACKET stcpPack) {
 		//设置错误控制标志
-		tcpH.setTh_eflag((byte)4);
+		tcpH.setTh_eflag((byte)7);
 		//System.out.println("to send: "+stcpPack.getTcpH().getTh_seq());				
 		//发送数据报
 		client.send(stcpPack);
@@ -64,7 +67,6 @@ public class TCP_Sender extends TCP_Sender_ADT {
 			// System.out.println("CurrentAck: "+currentAck);
 			if (currentAck == tcpPack.getTcpH().getTh_seq()){//成功接收
 				System.out.println("Clear: "+tcpPack.getTcpH().getTh_seq());
-				timer.cancel();
 				flag = 1;//等待应用层调用
 				//break;
 			}else{//NACK
@@ -79,17 +81,13 @@ public class TCP_Sender extends TCP_Sender_ADT {
 	//接收到ACK报文：检查校验和，将确认号插入ack队列;NACK的确认号为－1；不需要修改
 	public void recv(TCP_PACKET recvPack) {
 		if (CheckSum.computeChkSum(recvPack) == recvPack.getTcpH().getTh_sum()) {
-			System.out.println("Receive ACK Number： " + recvPack.getTcpH().getTh_ack());
-			ackQueue.add(recvPack.getTcpH().getTh_ack());//正常
 			System.out.println();
-		}
-		else
-		{
-			System.out.println("Receive corrupt ACK: " + recvPack.getTcpH().getTh_ack());
+			System.out.println("Receive ACK Number: " + recvPack.getTcpH().getTh_ack());
 			System.out.println();
-			ackQueue.add(-1);//出错
+			this.window.receiveACK((recvPack.getTcpH().getTh_ack() - 1) / 100);
+			if (!this.window.isFull()) {
+				this.flag = 1;
+			}
 		}
-		waitACK();
 	}
-	
 }
