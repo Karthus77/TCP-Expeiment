@@ -15,6 +15,7 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 	
 	private TCP_PACKET ackPack;	//回复的ACK报文段
 	private int expectedSequence = 0;//累积确认
+	private ReceiverSlidingWindow window = new ReceiverSlidingWindow(this.client);
 		
 	/*构造函数*/
 	public TCP_Receiver() {
@@ -26,31 +27,20 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 	//接收到数据报：检查校验和，设置回复的ACK报文段
 	public void rdt_recv(TCP_PACKET recvPack) {
 		//检查校验码，生成ACK
-		if(CheckSum.computeChkSum(recvPack) == recvPack.getTcpH().getTh_sum()) {
-			int currentSequence = (recvPack.getTcpH().getTh_seq() - 1) / 100;
-			if (this.expectedSequence == currentSequence) {//收到累积的包
-				// 生成 ACK 报文段（设置确认号）
-				this.tcpH.setTh_ack(recvPack.getTcpH().getTh_seq());
-				this.ackPack = new TCP_PACKET(this.tcpH, this.tcpS, recvPack.getSourceAddr());
-				this.tcpH.setTh_sum(CheckSum.computeChkSum(this.ackPack));
-				System.out.println();
-				System.out.println("ACK: " + recvPack.getTcpH().getTh_seq());
-				System.out.println();
-				// 回复 ACK 报文段
-				reply(ackPack);
-				this.expectedSequence += 1;
-				// 将接收到的正确有序的数据插入 data 队列，准备交付
-				this.dataQueue.add(recvPack.getTcpS().getData());
-				// 交付数据（每 20 组数据交付一次）
-				if (this.dataQueue.size() == 20)
-					deliver_data();
+		if (CheckSum.computeChkSum(recvPack) == recvPack.getTcpH().getTh_sum()) {
+			int toACKSequence = -1;
+			try {
+				toACKSequence = this.window.receivePacket(recvPack.clone());//接收到的数据包序号
+			} catch (CloneNotSupportedException e) {
+				e.printStackTrace();
 			}
-			else//失序
-			{
-				this.tcpH.setTh_ack((expectedSequence-1)*100+1);
+
+			if (toACKSequence != -1) {
+				this.tcpH.setTh_ack(toACKSequence * 100 + 1);
 				this.ackPack = new TCP_PACKET(this.tcpH, this.tcpS, recvPack.getSourceAddr());
 				this.tcpH.setTh_sum(CheckSum.computeChkSum(this.ackPack));
-				reply(ackPack);
+				// 回复 ACK 报文段
+				reply(this.ackPack);
 			}
 		}
 	}
