@@ -12,11 +12,9 @@ import com.ouc.tcp.message.*;
 import com.ouc.tcp.tool.TCP_TOOL;
 
 public class TCP_Receiver extends TCP_Receiver_ADT {
-	
-	private TCP_PACKET ackPack;	//回复的ACK报文段
-	private int expectedSequence = 0;//累积确认
+
+	private TCP_PACKET ackPack;  // 回复的 ACK 报文段
 	private ReceiverSlidingWindow window = new ReceiverSlidingWindow(this.client);
-		
 	/*构造函数*/
 	public TCP_Receiver() {
 		super();	//调用超类构造函数
@@ -34,7 +32,6 @@ public class TCP_Receiver extends TCP_Receiver_ADT {
 			} catch (CloneNotSupportedException e) {
 				e.printStackTrace();
 			}
-
 			if (toACKSequence != -1) {
 				this.tcpH.setTh_ack(toACKSequence * 100 + 1);
 				this.ackPack = new TCP_PACKET(this.tcpH, this.tcpS, recvPack.getSourceAddr());

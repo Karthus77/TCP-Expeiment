@@ -1,7 +1,10 @@
 package com.ouc.tcp.test;
 
 import com.ouc.tcp.client.Client;
+
+import java.util.Hashtable;
 import java.util.Timer;
+import java.util.TimerTask;
 
 import com.ouc.tcp.client.UDT_RetransTask;
 import com.ouc.tcp.client.UDT_Timer;
@@ -17,56 +20,92 @@ import com.ouc.tcp.message.TCP_PACKET;
 
 public class SenderSlidingWindow {
     private Client client;
-    private int size = 16;
-    private int base = 0;
-    private int nextIndex = 0;
-    private TCP_PACKET[] packets = new TCP_PACKET[this.size];//待发送的数据包
-    private UDT_Timer[] timers = new UDT_Timer[this.size];//每个数据包的计时器
+    public int cwnd = 1;
+    private volatile int ssthresh = 16;
+    private int count = 0;  // 拥塞避免： cwnd = cwnd + 1 / cwnd，每一个对新包的 ACK count++，所以 count == cwnd 时，cwnd = cwnd + 1
+    private Hashtable<Integer, TCP_PACKET> packets = new Hashtable<>();
+    private Hashtable<Integer, UDT_Timer> timers = new Hashtable<>();
+    private int lastACKSequence = -1;
+    private int lastACKSequenceCount = 0;
 
     public SenderSlidingWindow(Client client) {
         this.client = client;
     }
 
     public boolean isFull() {
-        return this.size <= this.nextIndex;
+        return this.cwnd <= this.packets.size();
     }
 
     public void putPacket(TCP_PACKET packet) {
-        this.packets[this.nextIndex] = packet;//加入数据包
-        this.timers[this.nextIndex] = new UDT_Timer();//加入计时器
-        this.timers[this.nextIndex].schedule(new UDT_RetransTask(this.client, packet), 1000, 1000);//设定发送时间
-        this.nextIndex++;
+        int currentSequence = (packet.getTcpH().getTh_seq() - 1) / 100;
+        this.packets.put(currentSequence, packet);
+        this.timers.put(currentSequence, new UDT_Timer());
+        this.timers.get(currentSequence).schedule(new RetransmitTask(this.client, packet, this), 1000, 1000);
     }
 
     public void receiveACK(int currentSequence) {
-        if (this.base <= currentSequence && currentSequence < this.base + this.size) {//窗口内的数据包序号
-            if (this.timers[currentSequence - this.base] == null) {//ack重复
-                return;
+        if (currentSequence == this.lastACKSequence) {//出现重复
+            this.lastACKSequenceCount++;//记录重复数量
+            if (this.lastACKSequenceCount == 4) {//快恢复
+                TCP_PACKET packet = this.packets.get(currentSequence + 1);
+                if (packet != null) {
+                    this.client.send(packet);
+                    this.timers.get(currentSequence + 1).cancel();
+                    this.timers.put(currentSequence + 1, new UDT_Timer());
+                    this.timers.get(currentSequence + 1).schedule(new RetransmitTask(this.client, packet, this), 1000, 1000);
+                }
+                reStart();//转入慢启动
             }
-            this.timers[currentSequence - this.base].cancel();//终止对应的计时器
-            this.timers[currentSequence - this.base] = null;//置空
-
-            if (currentSequence == this.base) {//窗口移动
-                int maxACKedIndex = 0;
-                while (maxACKedIndex + 1 < this.nextIndex
-                        && this.timers[maxACKedIndex + 1] == null) {
-                    maxACKedIndex++;//移动到第一个未确认处
+        } else {//正常接收
+            for (int i = this.lastACKSequence + 1; i <= currentSequence; i++) {
+                this.packets.remove(i);
+                if (this.timers.containsKey(i)) {
+                    this.timers.get(i).cancel();//取消计时
+                    this.timers.remove(i);
                 }
-
-                for (int i = 0; maxACKedIndex + 1 + i < this.size; i++) {
-                    this.packets[i] = this.packets[maxACKedIndex + 1 + i];//移动包
-                    this.timers[i] = this.timers[maxACKedIndex + 1 + i];//移动计时器
-                }
-
-                for (int i = this.size - (maxACKedIndex + 1); i < this.size; i++) {
-                    this.packets[i] = null;//清空之前移动的部分
-                    this.timers[i] = null;
-                }
-
-                this.base += maxACKedIndex + 1;//更新窗口指针
-                this.nextIndex -= maxACKedIndex + 1;//更新下一个包位置
+            }
+            this.lastACKSequence = currentSequence;
+            this.lastACKSequenceCount = 1;
+            if (this.cwnd < this.ssthresh) {
+                System.out.println("slow start");
+                System.out.println("ssthresh: "+ssthresh);
+                System.out.println("cwnd: "+cwnd+"-->"+cwnd*2);
+                this.cwnd=cwnd*2;//慢开始
+                System.out.println("########### window expand ############");
+            } else {//拥塞避免
+                    System.out.println("congestion avoidance");
+                    System.out.println("ssthresh: "+ssthresh);
+                    System.out.println("cwnd: "+cwnd+"-->"+(cwnd+1));
+                    this.cwnd++;
+                    System.out.println("########### window expand ############");
             }
         }
+    }
+
+    public void reStart() {//超时重传
+        System.out.println("ssthresh: "+ssthresh+"-->"+(this.cwnd/2));
+        this.ssthresh = this.cwnd / 2;
+        System.out.println("cwnd: "+cwnd+"-->"+1);
+        this.cwnd = 1;
+    }
+}
+
+class RetransmitTask extends TimerTask {
+    private Client client;
+    private TCP_PACKET packet;
+    private SenderSlidingWindow window;
+
+    public RetransmitTask(Client client, TCP_PACKET packet, SenderSlidingWindow window) {
+        this.client = client;
+        this.packet = packet;
+        this.window = window;
+    }
+
+    @Override
+    public void run() {
+        System.out.println("--- Time Out ---");
+        this.window.reStart();
+        this.client.send(this.packet);
     }
 }
 

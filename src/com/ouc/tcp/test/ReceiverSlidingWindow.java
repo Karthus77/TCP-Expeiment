@@ -6,6 +6,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.LinkedBlockingQueue;
 /**
@@ -17,11 +18,9 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class ReceiverSlidingWindow {
     private Client client;
-    private int size = 16;
-    private int base = 0;
-    private TCP_PACKET[] packets = new TCP_PACKET[this.size];//接收数据
+    private LinkedList<TCP_PACKET> packets = new LinkedList<>();
+    private int expectedSequence = 0;
     Queue<int[]> dataQueue = new LinkedBlockingQueue();
-    private int counts = 0;
 
     public ReceiverSlidingWindow(Client client) {
         this.client = client;
@@ -29,46 +28,36 @@ public class ReceiverSlidingWindow {
 
     public int receivePacket(TCP_PACKET packet) {
         int currentSequence = (packet.getTcpH().getTh_seq() - 1) / 100;
-        if (currentSequence < this.base) {//失序或者超时达到
-            // ACK [base - size, base - 1]
-            int left = this.base - this.size;
-            int right = this.base - 1;
-            if (left <= 0) {
-                left = 1;
-            }
-            if (left <= currentSequence && currentSequence <= right) {
-                return currentSequence;//回复ack
-            }
-        } else if (this.base <= currentSequence && currentSequence < this.base + this.size) {
-            this.packets[currentSequence - this.base] = packet;
-            if (currentSequence == this.base) {
-                this.slid();
-            }
-            return currentSequence;
+        if (currentSequence >= this.expectedSequence) {
+            putPacket(packet);
         }
-        return -1;
+        slid();
+        return this.expectedSequence - 1;
     }
 
+    private void putPacket(TCP_PACKET packet) {
+        int currentSequence = (packet.getTcpH().getTh_seq() - 1) / 100;
+        int index = 0;
+        while (index < this.packets.size()
+                && currentSequence > (this.packets.get(index).getTcpH().getTh_seq() - 1) / 100) {
+            index++;
+        }
+        if (index == this.packets.size()
+                || currentSequence != (this.packets.get(index).getTcpH().getTh_seq() - 1) / 100) {
+            this.packets.add(index, packet);
+        }
+    }
     private void slid() {
-        int maxIndex = 0;
-        while (maxIndex + 1 < this.size
-                && this.packets[maxIndex + 1] != null) {
-            maxIndex++;//移动到首个未被接收位置
+        while (!this.packets.isEmpty()
+                && (this.packets.getFirst().getTcpH().getTh_seq() - 1) / 100 == this.expectedSequence) {
+            this.dataQueue.add(this.packets.poll().getTcpS().getData());
+            this.expectedSequence++;
         }
-        for (int i = 0; i < maxIndex + 1; i++) {
-            this.dataQueue.add(this.packets[i].getTcpS().getData());//将移动的数据包加入
-        }
-        for (int i = 0; maxIndex + 1 + i < this.size; i++) {
-            this.packets[i] = this.packets[maxIndex + 1 + i];//将数据包左移
-        }
-        for (int i = this.size - (maxIndex + 1); i < this.size; i++) {
-            this.packets[i] = null;//清空被移动的数据包
-        }
-        this.base += maxIndex + 1;
-        if (this.dataQueue.size() >= 20 || this.base == 1000) {
+        if (this.dataQueue.size() >= 20 || this.expectedSequence == 1000) {
             this.deliver_data();
         }
     }
+
     /**
      * 交付数据: 将数据写入文件
      */
@@ -94,5 +83,4 @@ public class ReceiverSlidingWindow {
             e.printStackTrace();
         }
     }
-
 }
