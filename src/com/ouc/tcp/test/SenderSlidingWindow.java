@@ -54,7 +54,7 @@ public class SenderSlidingWindow {
                     this.timers.put(currentSequence + 1, new UDT_Timer());
                     this.timers.get(currentSequence + 1).schedule(new RetransmitTask(this.client, packet, this), 1000, 1000);
                 }
-                reStart();//转入慢启动
+                fastRecovery();
             }
         } else {//正常接收
             for (int i = this.lastACKSequence + 1; i <= currentSequence; i++) {
@@ -83,10 +83,23 @@ public class SenderSlidingWindow {
     }
 
     public void reStart() {//超时重传
+        System.out.println("time out");
         System.out.println("ssthresh: "+ssthresh+"-->"+(this.cwnd/2));
         this.ssthresh = this.cwnd / 2;
         System.out.println("cwnd: "+cwnd+"-->"+1);
         this.cwnd = 1;
+    }
+    public void fastRecovery() {//快恢复
+        System.out.println("Fast Recovery");
+        int fcwnd=cwnd;
+        int fss=ssthresh;
+        this.ssthresh = this.cwnd / 2;//一半
+        if (this.ssthresh < 2) {
+            this.ssthresh = 2;//若为1则变成2
+        }
+        this.cwnd = this.ssthresh;//cwnd与ssthresh同值
+        System.out.println("cwnd " +fcwnd+"-->"+ this.cwnd);
+        System.out.println("ssthresh "+fss+"-->"+ this.ssthresh);
     }
 }
 
